@@ -700,6 +700,14 @@ if shared.useVeryEasyProofOfWorkForTesting:
         shared.networkDefaultPayloadLengthExtraBytes / 7000)
 
 if __name__ == "__main__":
+    if sys.platform != 'win32' and os.getenv('ENABLE_PROFILER', False):
+        from profile_monitor import ProfileDataLogger
+        # You'll need to concatenate these files on your own. Big deal.
+        data_file = open('/tmp/bm_profile_monitor_data', 'w')
+        header_file = open('/tmp/bm_profile_monitor_headers', 'w+')
+        profiler = ProfileDataLogger(data_file, header_file, interval=30).Start()
+        # No point bothering with profiler.Stop() or an atexit hook since we'll just os._exit...
+
     # is the application already running?  If yes then exit.
     thisapp = singleton.singleinstance()
 
