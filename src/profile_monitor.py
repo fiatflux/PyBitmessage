@@ -35,7 +35,7 @@ class ProfileDataLogger:
         self.data_file = data_file
         self.headers = header_file
         self.column_number_map = {}
-        self.current_line = [0]
+        self.current_line = []
         self.interval = interval
 
     def __del__(self):
@@ -74,9 +74,9 @@ class ProfileDataLogger:
         if key in self.column_number_map:
             return self.column_number_map[key]
         else:
-            self.column_number_map[key] = len(self.column_number_map)
+            self.column_number_map[key] = len(self.column_number_map) - 1
             self.current_line.append(0)
-            return len(self.column_number_map)
+            return self.column_number_map[key]
 
     # Update current numbers for a particular stat entry (i.e. for a particular function).
     def __ProcessFunctionStats(self, stat_entry):
@@ -84,7 +84,11 @@ class ProfileDataLogger:
         for stat_name, stat in zip(('callcount',      'ttot',          'tsub'),
                                    (stat_entry.ncall, stat_entry.ttot, stat_entry.tsub)):
             key = ' '.join(map(str, (function_name, stat_name)))
-            self.current_line[self.__GetColumnNumber(key)] = stat
+            column_number = self.__GetColumnNumber(key)
+            try:
+                self.current_line[column_number] = stat
+            except:
+                print 'len, col num', len(self.current_line), column_number
 
     # Emit a line to the data file.
     def __Emit(self):
