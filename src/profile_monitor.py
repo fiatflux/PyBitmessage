@@ -25,6 +25,7 @@
 #         DoSomething(i)
 #     logger.Stop()
 
+import operator
 import os
 import threading
 import time
@@ -76,6 +77,7 @@ class ProfileDataLogger:
         else:
             self.column_number_map[key] = len(self.column_number_map) - 1
             self.current_line.append(0)
+            assert len(self.column_number_map) == len(self.current_line)
             return self.column_number_map[key]
 
     # Update current numbers for a particular stat entry (i.e. for a particular function).
@@ -85,10 +87,7 @@ class ProfileDataLogger:
                                    (stat_entry.ncall, stat_entry.ttot, stat_entry.tsub)):
             key = ' '.join(map(str, (function_name, stat_name)))
             column_number = self.__GetColumnNumber(key)
-            try:
-                self.current_line[column_number] = stat
-            except:
-                print 'len, col num', len(self.current_line), column_number
+            self.current_line[column_number] = stat
 
     # Emit a line to the data file.
     def __Emit(self):
@@ -96,9 +95,10 @@ class ProfileDataLogger:
         self.data_file.write('\n')
         self.data_file.flush()
 
+        sorted_keys = [a[0] for a in sorted(self.column_number_map.items(), key=operator.itemgetter(1))]
         self.headers.seek(0, 0)
         self.headers.write('"')
-        self.headers.write('","'.join(self.column_number_map.keys()))
+        self.headers.write('","'.join(sorted_keys))
         self.headers.write('"\n')
         self.headers.flush()
 
