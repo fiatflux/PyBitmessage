@@ -54,6 +54,7 @@ class ProfileDataLogger:
         # Make sure we have roughly same-length samples.
         yappi.stop()
 
+        self.__ProcessCPUStats()
         for func_stats in yappi.get_func_stats():
             self.__ProcessFunctionStats(func_stats)
 
@@ -79,6 +80,12 @@ class ProfileDataLogger:
             self.current_line.append(0)
             assert len(self.column_number_map) == len(self.current_line)
             return self.column_number_map[key]
+
+    def __ProcessCPUStats(self):
+        for key, value in zip(('utime', 'stime', 'cutime', 'cstime', 'elapsed_time'),
+                              os.times()):
+            column_number = self.__GetColumnNumber(key)
+            self.current_line[column_number] = value
 
     # Update current numbers for a particular stat entry (i.e. for a particular function).
     def __ProcessFunctionStats(self, stat_entry):
