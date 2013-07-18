@@ -10,6 +10,12 @@
 # The software version variable is now held in shared.py
 
 #import ctypes
+try:
+    from gevent import monkey
+    monkey.patch_all()
+except ImportError as ex:
+    print "Not using the gevent module as it was not found. No need to worry."
+
 import signal  # Used to capture a Ctrl-C keypress so that Bitmessage can shutdown gracefully.
 # The next 3 are used for the API
 from SimpleXMLRPCServer import *
@@ -26,8 +32,14 @@ from class_singleListener import *
 from class_addressGenerator import *
 
 # Helper Functions
-import helper_startup
 import helper_bootstrap
+
+import sys
+if sys.platform == 'darwin':
+    if float( "{1}.{2}".format(*sys.version_info) ) < 7.5:
+        print "You should use python 2.7.5 or greater."
+        print "Your version: {0}.{1}.{2}".format(*sys.version_info)
+        sys.exit(0)
 
 def connectToStream(streamNumber):
     selfInitiatedConnections[streamNumber] = {}
@@ -459,9 +471,9 @@ class MySimpleXMLRPCRequestHandler(SimpleXMLRPCRequestHandler):
             status, addressVersionNumber, streamNumber, toRipe = decodeAddress(
                 toAddress)
             if status != 'success':
-                shared.printLock.acquire()
-                print 'API Error 0007: Could not decode address:', toAddress, ':', status
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'API Error 0007: Could not decode address:', toAddress, ':', status
+
                 if status == 'checksumfailed':
                     return 'API Error 0008: Checksum failed for address: ' + toAddress
                 if status == 'invalidcharacters':
@@ -476,9 +488,9 @@ class MySimpleXMLRPCRequestHandler(SimpleXMLRPCRequestHandler):
             status, addressVersionNumber, streamNumber, fromRipe = decodeAddress(
                 fromAddress)
             if status != 'success':
-                shared.printLock.acquire()
-                print 'API Error 0007: Could not decode address:', fromAddress, ':', status
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'API Error 0007: Could not decode address:', fromAddress, ':', status
+
                 if status == 'checksumfailed':
                     return 'API Error 0008: Checksum failed for address: ' + fromAddress
                 if status == 'invalidcharacters':
@@ -541,9 +553,9 @@ class MySimpleXMLRPCRequestHandler(SimpleXMLRPCRequestHandler):
             status, addressVersionNumber, streamNumber, fromRipe = decodeAddress(
                 fromAddress)
             if status != 'success':
-                shared.printLock.acquire()
-                print 'API Error 0007: Could not decode address:', fromAddress, ':', status
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'API Error 0007: Could not decode address:', fromAddress, ':', status
+
                 if status == 'checksumfailed':
                     return 'API Error 0008: Checksum failed for address: ' + fromAddress
                 if status == 'invalidcharacters':
@@ -612,9 +624,9 @@ class MySimpleXMLRPCRequestHandler(SimpleXMLRPCRequestHandler):
             status, addressVersionNumber, streamNumber, toRipe = decodeAddress(
                 address)
             if status != 'success':
-                shared.printLock.acquire()
-                print 'API Error 0007: Could not decode address:', address, ':', status
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'API Error 0007: Could not decode address:', address, ':', status
+
                 if status == 'checksumfailed':
                     return 'API Error 0008: Checksum failed for address: ' + address
                 if status == 'invalidcharacters':
@@ -714,11 +726,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, helper_generic.signal_handler)
     # signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-    helper_startup.loadConfig()
-
     helper_bootstrap.knownNodes()
     helper_bootstrap.dns()
-    
     # Start the address generation thread
     addressGeneratorThread = addressGenerator()
     addressGeneratorThread.daemon = True  # close the main program even if there are threads left
@@ -749,9 +758,9 @@ if __name__ == "__main__":
         except:
             apiNotifyPath = ''
         if apiNotifyPath != '':
-            shared.printLock.acquire()
-            print 'Trying to call', apiNotifyPath
-            shared.printLock.release()
+            with shared.printLock:
+                print 'Trying to call', apiNotifyPath
+
             call([apiNotifyPath, "startingUp"])
         singleAPIThread = singleAPI()
         singleAPIThread.daemon = True  # close the main program even if there are threads left
@@ -782,9 +791,9 @@ if __name__ == "__main__":
         import bitmessageqt
         bitmessageqt.run()
     else:
-        shared.printLock.acquire()
-        print 'Running as a daemon. You can use Ctrl+C to exit.'
-        shared.printLock.release()
+        with shared.printLock:
+            print 'Running as a daemon. You can use Ctrl+C to exit.'
+
         while True:
             time.sleep(20)
 

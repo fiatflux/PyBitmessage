@@ -5,6 +5,7 @@ import time
 import shutil  # used for moving the messages.dat file
 import sys
 import os
+from debug import logger
 
 # This thread exists because SQLITE3 is so un-threadsafe that we must
 # submit queries to it and it puts results back in a different queue. They
@@ -61,9 +62,9 @@ class sqlThread(threading.Thread):
             print 'Created messages database file'
         except Exception as err:
             if str(err) == 'table inbox already exists':
-                shared.printLock.acquire()
-                print 'Database file already exists.'
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'Database file already exists.'
+
             else:
                 sys.stderr.write(
                     'ERROR trying to create database file (message.dat). Error message: %s\n' % str(err))
@@ -80,6 +81,7 @@ class sqlThread(threading.Thread):
             shared.config.set('bitmessagesettings', 'socksauthentication', 'false')
             shared.config.set('bitmessagesettings', 'socksusername', '')
             shared.config.set('bitmessagesettings', 'sockspassword', '')
+            shared.config.set('bitmessagesettings', 'sockslisten', 'false')
             shared.config.set('bitmessagesettings', 'keysencrypted', 'false')
             shared.config.set('bitmessagesettings', 'messagesencrypted', 'false')
             with open(shared.appdata + 'keys.dat', 'wb') as configfile:
@@ -225,14 +227,14 @@ class sqlThread(threading.Thread):
                 self.conn.commit()
             elif item == 'exit':
                 self.conn.close()
-                shared.printLock.acquire()
-                print 'sqlThread exiting gracefully.'
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'sqlThread exiting gracefully.'
+
                 return
             elif item == 'movemessagstoprog':
-                shared.printLock.acquire()
-                print 'the sqlThread is moving the messages.dat file to the local program directory.'
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'the sqlThread is moving the messages.dat file to the local program directory.'
+
                 self.conn.commit()
                 self.conn.close()
                 shutil.move(
@@ -241,9 +243,9 @@ class sqlThread(threading.Thread):
                 self.conn.text_factory = str
                 self.cur = self.conn.cursor()
             elif item == 'movemessagstoappdata':
-                shared.printLock.acquire()
-                print 'the sqlThread is moving the messages.dat file to the Appdata folder.'
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'the sqlThread is moving the messages.dat file to the Appdata folder.'
+
                 self.conn.commit()
                 self.conn.close()
                 shutil.move(
@@ -263,11 +265,11 @@ class sqlThread(threading.Thread):
                 try:
                     self.cur.execute(item, parameters)
                 except Exception as err:
-                    shared.printLock.acquire()
-                    sys.stderr.write('\nMajor error occurred when trying to execute a SQL statement within the sqlThread. Please tell Atheros about this error message or post it in the forum! Error occurred while trying to execute statement: "' + str(
-                        item) + '"  Here are the parameters; you might want to censor this data with asterisks (***) as it can contain private information: ' + str(repr(parameters)) + '\nHere is the actual error message thrown by the sqlThread: ' + str(err) + '\n')
-                    sys.stderr.write('This program shall now abruptly exit!\n')
-                    shared.printLock.release()
+                    with shared.printLock:
+                        sys.stderr.write('\nMajor error occurred when trying to execute a SQL statement within the sqlThread. Please tell Atheros about this error message or post it in the forum! Error occurred while trying to execute statement: "' + str(
+                            item) + '"  Here are the parameters; you might want to censor this data with asterisks (***) as it can contain private information: ' + str(repr(parameters)) + '\nHere is the actual error message thrown by the sqlThread: ' + str(err) + '\n')
+                        sys.stderr.write('This program shall now abruptly exit!\n')
+
                     os._exit(0)
 
                 shared.sqlReturnQueue.put(self.cur.fetchall())

@@ -8,20 +8,25 @@ maximumAgeOfNodesThatIAdvertiseToOthers = 10800  # Equals three hours
 useVeryEasyProofOfWorkForTesting = False  # If you set this to True while on the normal network, you won't be able to send or sometimes receive messages.
 
 
-import threading
+# Libraries.
+import ConfigParser
+import os
+import pickle
+import Queue
+import random
+import socket
 import sys
+import stat
+import threading
+import time
+
+# Project imports.
 from addresses import *
 import highlevelcrypto
-import Queue
-import pickle
-import os
-import time
-import ConfigParser
-import socket
-import random
-import highlevelcrypto
 import shared
-import stat
+import helper_startup
+
+
 
 config = ConfigParser.SafeConfigParser()
 myECCryptorObjects = {}
@@ -62,8 +67,6 @@ ackdataForWhichImWatching = {}
 #If changed, these values will cause particularly unexpected behavior: You won't be able to either send or receive messages because the proof of work you do (or demand) won't match that done or demanded by others. Don't change them!
 networkDefaultProofOfWorkNonceTrialsPerByte = 320 #The amount of work that should be performed (and demanded) per byte of the payload. Double this number to double the work.
 networkDefaultPayloadLengthExtraBytes = 14000 #To make sending short messages a little more difficult, this value is added to the payload length for use in calculating the proof of work target.
-
-
 
 def isInSqlInventory(hash):
     t = (hash,)
@@ -119,7 +122,11 @@ def lookupAppdataFolder():
         if "HOME" in environ:
             dataFolder = path.join(os.environ["HOME"], "Library/Application Support/", APPNAME) + '/'
         else:
-            print 'Could not find home folder, please report this message and your OS X version to the BitMessage Github.'
+            stringToLog = 'Could not find home folder, please report this message and your OS X version to the BitMessage Github.'
+            if 'logger' in globals():
+                logger.critical(stringToLog)
+            else:
+                print stringToLog
             sys.exit()
 
     elif 'win32' in sys.platform or 'win64' in sys.platform:
@@ -130,13 +137,19 @@ def lookupAppdataFolder():
             dataFolder = path.join(environ["XDG_CONFIG_HOME"], APPNAME)
         except KeyError:
             dataFolder = path.join(environ["HOME"], ".config", APPNAME)
+
         # Migrate existing data to the proper location if this is an existing install
         try:
-            print "Moving data folder to ~/.config/%s" % APPNAME
             move(path.join(environ["HOME"], ".%s" % APPNAME), dataFolder)
-            dataFolder = dataFolder + '/'
+            stringToLog = "Moving data folder to %s" % (dataFolder)
+            if 'logger' in globals():
+                logger.info(stringToLog)
+            else:
+                print stringToLog
         except IOError:
-            dataFolder = dataFolder + '/'
+            # Old directory may not exist.
+            pass
+        dataFolder = dataFolder + '/'
     return dataFolder
 
 def isAddressInMyAddressBook(address):
@@ -189,21 +202,22 @@ def decodeWalletImportFormat(WIFstring):
     fullString = arithmetic.changebase(WIFstring,58,256)
     privkey = fullString[:-4]
     if fullString[-4:] != hashlib.sha256(hashlib.sha256(privkey).digest()).digest()[:4]:
-        sys.stderr.write('Major problem! When trying to decode one of your private keys, the checksum failed. Here is the PRIVATE key: %s\n' % str(WIFstring))
+        logger.error('Major problem! When trying to decode one of your private keys, the checksum '
+                     'failed. Here is the PRIVATE key: %s\n' % str(WIFstring))
         return ""
     else:
         #checksum passed
         if privkey[0] == '\x80':
             return privkey[1:]
         else:
-            sys.stderr.write('Major problem! When trying to decode one of your private keys, the checksum passed but the key doesn\'t begin with hex 80. Here is the PRIVATE key: %s\n' % str(WIFstring))
+            logger.error('Major problem! When trying to decode one of your private keys, the '
+                         'checksum passed but the key doesn\'t begin with hex 80. Here is the '
+                         'PRIVATE key: %s\n' % str(WIFstring))
             return ""
 
 
 def reloadMyAddressHashes():
-    printLock.acquire()
-    print 'reloading keys from keys.dat file'
-    printLock.release()
+    logger.debug('reloading keys from keys.dat file')
     myECCryptorObjects.clear()
     myAddressesByHash.clear()
     #myPrivateKeys.clear()
@@ -227,27 +241,15 @@ def reloadMyAddressHashes():
                         myECCryptorObjects[hash] = highlevelcrypto.makeCryptor(privEncryptionKey)
                         myAddressesByHash[hash] = addressInKeysFile
 
-                    if not keyfileSecure:
-                        # Insecure keyfile permissions. Disable key.
-                        config.set(addressInKeysFile, 'enabled', 'false')
                 else:
-                    sys.stderr.write('Error in reloadMyAddressHashes: Can\'t handle address '
-                                     'versions other than 2 or 3.\n')
+                    logger.error('Error in reloadMyAddressHashes: Can\'t handle address '
+                                 'versions other than 2 or 3.\n')
 
     if not keyfileSecure:
         fixSensitiveFilePermissions(appdata + 'keys.dat', hasEnabledKeys)
-        if hasEnabledKeys:
-            try:
-                with open(appdata + 'keys.dat', 'wb') as keyfile:
-                    config.write(keyfile)
-            except:
-                print 'Failed to disable vulnerable keys.'
-                raise
 
 def reloadBroadcastSendersForWhichImWatching():
-    printLock.acquire()
-    print 'reloading subscriptions...'
-    printLock.release()
+    logger.debug('reloading subscriptions...')
     broadcastSendersForWhichImWatching.clear()
     MyECSubscriptionCryptorObjects.clear()
     sqlLock.acquire()
@@ -270,46 +272,45 @@ def doCleanShutdown():
     knownNodesLock.acquire()
     UISignalQueue.put(('updateStatusBar','Saving the knownNodes list of peers to disk...'))
     output = open(appdata + 'knownnodes.dat', 'wb')
-    print 'finished opening knownnodes.dat. Now pickle.dump'
+    logger.info('finished opening knownnodes.dat. Now pickle.dump')
     pickle.dump(knownNodes, output)
-    print 'Completed pickle.dump. Closing output...'
+    logger.info('Completed pickle.dump. Closing output...')
     output.close()
     knownNodesLock.release()
-    printLock.acquire()
-    print 'Finished closing knownnodes.dat output file.'
-    printLock.release()
+    logger.info('Finished closing knownnodes.dat output file.')
     UISignalQueue.put(('updateStatusBar','Done saving the knownNodes list of peers to disk.'))
 
     broadcastToSendDataQueues((0, 'shutdown', 'all'))
 
-    printLock.acquire()
-    print 'Flushing inventory in memory out to disk...'
-    printLock.release()
-    UISignalQueue.put(('updateStatusBar','Flushing inventory in memory out to disk. This should normally only take a second...'))
+    logger.info('Flushing inventory in memory out to disk...')
+    UISignalQueue.put((
+        'updateStatusBar',
+        'Flushing inventory in memory out to disk. This should normally only take a second...'))
     flushInventory()
 
-    #This one last useless query will guarantee that the previous flush committed before we close the program.
+    # This one last useless query will guarantee that the previous flush committed before we close
+    # the program.
     sqlLock.acquire()
     sqlSubmitQueue.put('SELECT address FROM subscriptions')
     sqlSubmitQueue.put('')
     sqlReturnQueue.get()
     sqlSubmitQueue.put('exit')
     sqlLock.release()
-    printLock.acquire()
-    print 'Finished flushing inventory.'
-    printLock.release()
+    logger.info('Finished flushing inventory.')
 
-    time.sleep(.25) #Wait long enough to guarantee that any running proof of work worker threads will check the shutdown variable and exit. If the main thread closes before they do then they won't stop.
+    # Wait long enough to guarantee that any running proof of work worker threads will check the
+    # shutdown variable and exit. If the main thread closes before they do then they won't stop.
+    time.sleep(.25) 
 
     if safeConfigGetBoolean('bitmessagesettings','daemon'):
-        printLock.acquire()
-        print 'Done.'
-        printLock.release()
+        logger.info('Clean shutdown complete.')
         os._exit(0)
 
-#When you want to command a sendDataThread to do something, like shutdown or send some data, this function puts your data into the queues for each of the sendDataThreads. The sendDataThreads are responsible for putting their queue into (and out of) the sendDataQueues list.
+# When you want to command a sendDataThread to do something, like shutdown or send some data, this
+# function puts your data into the queues for each of the sendDataThreads. The sendDataThreads are
+# responsible for putting their queue into (and out of) the sendDataQueues list.
 def broadcastToSendDataQueues(data):
-    #print 'running broadcastToSendDataQueues'
+    # logger.debug('running broadcastToSendDataQueues')
     for q in sendDataQueues:
         q.put((data))
         
@@ -336,6 +337,7 @@ def fixPotentiallyInvalidUTF8Data(text):
 
 # Checks sensitive file permissions for inappropriate umask during keys.dat creation.
 # (Or unwise subsequent chmod.)
+#
 # Returns true iff file appears to have appropriate permissions.
 def checkSensitiveFilePermissions(filename):
     if sys.platform == 'win32':
@@ -350,28 +352,10 @@ def checkSensitiveFilePermissions(filename):
 # Fixes permissions on a sensitive file.
 def fixSensitiveFilePermissions(filename, hasEnabledKeys):
     if hasEnabledKeys:
-        print
-        print '******************************************************************'
-        print '**                      !! WARNING !!                           **'
-        print '******************************************************************'
-        print '** Possibly major security problem:                             **'
-        print '** Your keyfile was vulnerable to being read by other users     **'
-        print '** (including some untrusted daemons). You may wish to consider **'
-        print '** generating new keys and discontinuing use of your old ones.  **'
-        print '** Your private keys have been disabled for your security, but  **'
-        print '** you may re-enable them using the "Your Identities" tab in    **'
-        print '** the default GUI or by modifying keys.dat such that your keys **'
-        print '** show "enabled = true".                                       **'
+        logger.warning('Keyfile had insecure permissions, and there were enabled keys. '
+                       'The truly paranoid should stop using them immediately.')
     else:
-        print '******************************************************************'
-        print '**                      !! WARNING !!                           **'
-        print '******************************************************************'
-        print '** Possibly major security problem:                             **'
-        print '** Your keyfile was vulnerable to being read by other users.    **'
-        print '** Fortunately, you don\'t have any enabled keys, but be aware   **'
-        print '** that any disabled keys may have been compromised by malware  **'
-        print '** running by other users and that you should reboot before     **'
-        print '** generating any new keys.                                     **'
+        logger.warning('Keyfile had insecure permissions, but there were no enabled keys.')
     try:
         present_permissions = os.stat(filename)[0]
         disallowed_permissions = stat.S_IRWXG | stat.S_IRWXO
@@ -380,12 +364,11 @@ def fixSensitiveFilePermissions(filename, hasEnabledKeys):
             allowed_permissions & present_permissions)
         os.chmod(filename, new_permissions)
 
-        print '** The file permissions have been automatically fixed.          **'
-        print '******************************************************************'
-        print
+        logger.info('Keyfile permissions automatically fixed.')
+
     except Exception, e:
-        print '** Could NOT automatically fix permissions.                     **'
-        print '******************************************************************'
-        print
+        logger.exception('Keyfile permissions could not be fixed.')
         raise
 
+helper_startup.loadConfig()
+from debug import logger

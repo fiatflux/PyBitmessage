@@ -21,15 +21,16 @@ class singleListener(threading.Thread):
         self.selfInitiatedConnections = selfInitiatedConnections
 
     def run(self):
-        # We don't want to accept incoming connections if the user is using a
-        # SOCKS proxy. If they eventually select proxy 'none' then this will
-        # start listening for connections.
-        while shared.config.get('bitmessagesettings', 'socksproxytype')[0:5] == 'SOCKS':
+        # We typically don't want to accept incoming connections if the user is using a
+        # SOCKS proxy, unless they have configured otherwise. If they eventually select
+        # proxy 'none' or configure SOCKS listening then this will start listening for
+        # connections.
+        while shared.config.get('bitmessagesettings', 'socksproxytype')[0:5] == 'SOCKS' and not shared.config.getboolean('bitmessagesettings', 'sockslisten'):
             time.sleep(300)
 
-        shared.printLock.acquire()
-        print 'Listening for incoming connections.'
-        shared.printLock.release()
+        with shared.printLock:
+            print 'Listening for incoming connections.'
+
         HOST = ''  # Symbolic name meaning all available interfaces
         PORT = shared.config.getint('bitmessagesettings', 'port')
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -40,15 +41,16 @@ class singleListener(threading.Thread):
         sock.listen(2)
 
         while True:
-            # We don't want to accept incoming connections if the user is using
-            # a SOCKS proxy. If the user eventually select proxy 'none' then
-            # this will start listening for connections.
-            while shared.config.get('bitmessagesettings', 'socksproxytype')[0:5] == 'SOCKS':
+            # We typically don't want to accept incoming connections if the user is using a
+            # SOCKS proxy, unless they have configured otherwise. If they eventually select
+            # proxy 'none' or configure SOCKS listening then this will start listening for
+            # connections.
+            while shared.config.get('bitmessagesettings', 'socksproxytype')[0:5] == 'SOCKS' and not shared.config.getboolean('bitmessagesettings', 'sockslisten'):
                 time.sleep(10)
             while len(shared.connectedHostsList) > 220:
-                shared.printLock.acquire()
-                print 'We are connected to too many people. Not accepting further incoming connections for ten seconds.'
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'We are connected to too many people. Not accepting further incoming connections for ten seconds.'
+
                 time.sleep(10)
             a, (HOST, PORT) = sock.accept()
 
@@ -57,9 +59,9 @@ class singleListener(threading.Thread):
             # because the two computers will share the same external IP. This
             # is here to prevent connection flooding.
             while HOST in shared.connectedHostsList:
-                shared.printLock.acquire()
-                print 'We are already connected to', HOST + '. Ignoring connection.'
-                shared.printLock.release()
+                with shared.printLock:
+                    print 'We are already connected to', HOST + '. Ignoring connection.'
+
                 a.close()
                 a, (HOST, PORT) = sock.accept()
             someObjectsOfWhichThisRemoteNodeIsAlreadyAware = {} # This is not necessairly a complete list; we clear it from time to time to save memory.
@@ -76,6 +78,6 @@ class singleListener(threading.Thread):
                 a, HOST, PORT, -1, someObjectsOfWhichThisRemoteNodeIsAlreadyAware, self.selfInitiatedConnections)
             rd.start()
 
-            shared.printLock.acquire()
-            print self, 'connected to', HOST, 'during INCOMING request.'
-            shared.printLock.release()
+            with shared.printLock:
+                print self, 'connected to', HOST, 'during INCOMING request.'
+
